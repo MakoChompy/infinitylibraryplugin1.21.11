@@ -119,7 +119,6 @@ public class GenerationEngine {
     private ConnectorTarget nearestProceduralTarget(PlacedRoom parent, ConnectionPoint target, int maxDistance) {
         ConnectorTarget best = null;
         int bestDistance = Integer.MAX_VALUE;
-        boolean bestCompatible = false;
         Vector3i targetDoor = connectorStart(parent.origin(), target);
         for (PlacedRoom candidate : placed) {
             if (candidate == parent) continue;
@@ -128,11 +127,10 @@ public class GenerationEngine {
             for (ConnectionPoint local : room.connections()) {
                 if (candidate.generatedConnections().contains(local.id())) continue;
                 ConnectionPoint transformed = local.transform(candidate.transform(), room.size());
+                if (!target.compatibleWith(transformed)) continue;
                 int distance = manhattan(targetDoor, connectorStart(candidate.origin(), transformed));
-                boolean compatible = target.compatibleWith(transformed);
-                if (distance <= maxDistance && (distance < bestDistance || (distance == bestDistance && compatible && !bestCompatible))) {
+                if (distance <= maxDistance && distance < bestDistance) {
                     bestDistance = distance;
-                    bestCompatible = compatible;
                     best = new ConnectorTarget(candidate, local, transformed);
                 }
             }

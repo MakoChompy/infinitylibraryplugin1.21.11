@@ -57,8 +57,9 @@ public class CommandHandler implements CommandExecutor, TabCompleter {
     }
 
     private void addConnection(Player p, String[] args) {
-        require(args, 6, "/il addconnection <id> <x,y,z> <NORTH|EAST|SOUTH|WEST|UP|DOWN> <width> <height>");
-        ConnectionPoint cp = new ConnectionPoint(args[1], Vector3i.parse(args[2]), BlockFace.valueOf(args[3].toUpperCase(Locale.ROOT)), Integer.parseInt(args[4]), Integer.parseInt(args[5]));
+        require(args, 6, "/il addconnection <id> <x,y,z> <NORTH|EAST|SOUTH|WEST|UP|DOWN> <width> <height> [floor]");
+        int floor = args.length >= 7 ? Integer.parseInt(args[6]) : 0;
+        ConnectionPoint cp = new ConnectionPoint(args[1], Vector3i.parse(args[2]), BlockFace.valueOf(args[3].toUpperCase(Locale.ROOT)), Integer.parseInt(args[4]), Integer.parseInt(args[5]), floor);
         plugin.getSelectionManager().addStagedConnection(p, cp);
         msg(p, "Connection staged: " + cp.id());
     }

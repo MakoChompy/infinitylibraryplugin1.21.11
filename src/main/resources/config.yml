@@ -12,6 +12,17 @@ generation:
   retry-room-selection: 16
   start-room-id: "builtin_start"
   sign-min-rooms: 6
+  path-blocking:
+    enabled: true
+    material: "SMOOTH_STONE"
+  procedural-connectors:
+    enabled: true
+    max-distance: 18
+    floor-material: "SMOOTH_STONE"
+    wall-material: "BOOKSHELF"
+    ceiling-material: "DARK_OAK_PLANKS"
+    light-material: "LANTERN"
+    light-spacing: 6
 gui:
   title: "&5Infinity Library"
   size: 27

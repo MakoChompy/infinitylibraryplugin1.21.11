@@ -1,0 +1,23 @@
+name: InfinityLibraryPlugin
+version: ${version}
+main: com.infinitylibrary.InfinityLibraryPlugin
+api-version: '1.21'
+author: Codex
+website: https://example.invalid/infinity-library
+description: Procedural infinite library generator with live custom rooms and persistent written-book storage.
+commands:
+  infinitylibrary:
+    description: Manage the Infinity Library generator.
+    usage: /<command> help
+    aliases: [ilibrary, il]
+    permission: infinitylibrary.command
+permissions:
+  infinitylibrary.command:
+    description: Allows use of general Infinity Library commands.
+    default: true
+  infinitylibrary.admin:
+    description: Allows editing rooms, resetting generation, and changing the start.
+    default: op
+  infinitylibrary.book.bypassdaily:
+    description: Allows claiming more than one writable library book per day.
+    default: op

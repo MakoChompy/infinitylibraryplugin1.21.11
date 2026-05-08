@@ -1,0 +1,26 @@
+world: "InfinityLibrary"
+start-location:
+  x: 0
+  y: 80
+  z: 0
+  yaw: 0
+  pitch: 0
+proximity-radius: 9.0
+generation:
+  max-rooms-per-tick: 1
+  placement-blocks-per-tick: 1800
+  retry-room-selection: 16
+  start-room-id: "builtin_start"
+  sign-min-rooms: 6
+gui:
+  title: "&5Infinity Library"
+  size: 27
+  total-books-slot: 11
+  contributors-slot: 13
+  player-stats-slot: 15
+  filler-material: "BLACK_STAINED_GLASS_PANE"
+  total-books-material: "WRITTEN_BOOK"
+  contributors-material: "PLAYER_HEAD"
+  player-stats-material: "BOOK"
+lectern-gui:
+  title: "&5Library Lectern"

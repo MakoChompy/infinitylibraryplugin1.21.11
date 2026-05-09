@@ -111,7 +111,8 @@ public class GUIListener implements Listener {
     @EventHandler public void onDrag(InventoryDragEvent e) {
         if (!e.getView().getTitle().equals(plugin.getGuiManager().lecternBookEditorTitle())) return;
         boolean touchesProtectedSlot = e.getRawSlots().stream().anyMatch(slot -> slot < e.getView().getTopInventory().getSize() && slot != 22);
-        boolean putsInvalidBookInSubmitSlot = e.getRawSlots().contains(22) && e.getOldCursor().getType() != Material.WRITTEN_BOOK;
+        ItemStack submitted = e.getNewItems().get(22);
+        boolean putsInvalidBookInSubmitSlot = submitted != null && submitted.getType() != Material.WRITTEN_BOOK;
         if (touchesProtectedSlot || putsInvalidBookInSubmitSlot) e.setCancelled(true);
         else plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (e.getWhoClicked() instanceof Player player) plugin.getGuiManager().refreshLecternBookEditor(player);

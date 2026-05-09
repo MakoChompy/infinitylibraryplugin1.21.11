@@ -3,6 +3,7 @@ package com.infinitylibrary.engine;
 import com.infinitylibrary.InfinityLibraryPlugin;
 import com.infinitylibrary.model.*;
 import com.infinitylibrary.room.RoomManager;
+import org.bukkit.Axis;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -13,7 +14,12 @@ import org.bukkit.block.Sign;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.Directional;
+import org.bukkit.block.data.MultipleFacing;
+import org.bukkit.block.data.Orientable;
+import org.bukkit.block.data.Rail;
 import org.bukkit.block.data.Rotatable;
+import org.bukkit.block.data.type.Chest;
+import org.bukkit.block.data.type.Stairs;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -162,6 +168,80 @@ public class GenerationEngine {
     private void rotateData(BlockData data, RoomTransform transform) {
         if (data instanceof Directional d) d.setFacing(transform.transform(d.getFacing()));
         if (data instanceof Rotatable r) r.setRotation(transform.transform(r.getRotation()));
+        if (data instanceof Orientable o) o.setAxis(transformAxis(o.getAxis(), transform));
+        if (data instanceof MultipleFacing multipleFacing) transformMultipleFacing(multipleFacing, transform);
+        if (data instanceof Rail rail) rail.setShape(transformRailShape(rail.getShape(), transform));
+        if (data instanceof Stairs stairs && transform.flipX() != transform.flipZ()) stairs.setShape(mirrorStairShape(stairs.getShape()));
+        if (data instanceof Chest chest && transform.flipX() != transform.flipZ()) chest.setType(mirrorChestType(chest.getType()));
+    }
+
+    private void transformMultipleFacing(MultipleFacing data, RoomTransform transform) {
+        Set<BlockFace> faces = new HashSet<>(data.getFaces());
+        for (BlockFace face : data.getAllowedFaces()) data.setFace(face, false);
+        for (BlockFace face : faces) {
+            BlockFace transformed = transform.transform(face);
+            if (data.getAllowedFaces().contains(transformed)) data.setFace(transformed, true);
+        }
+    }
+
+    private Axis transformAxis(Axis axis, RoomTransform transform) {
+        if (axis == Axis.Y) return Axis.Y;
+        BlockFace transformed = transform.transform(axis == Axis.X ? BlockFace.EAST : BlockFace.SOUTH);
+        return (transformed == BlockFace.EAST || transformed == BlockFace.WEST) ? Axis.X : Axis.Z;
+    }
+
+    private Rail.Shape transformRailShape(Rail.Shape shape, RoomTransform transform) {
+        return switch (shape) {
+            case NORTH_SOUTH -> railAxisShape(transform.transform(BlockFace.NORTH));
+            case EAST_WEST -> railAxisShape(transform.transform(BlockFace.EAST));
+            case ASCENDING_EAST -> ascendingRailShape(transform.transform(BlockFace.EAST));
+            case ASCENDING_WEST -> ascendingRailShape(transform.transform(BlockFace.WEST));
+            case ASCENDING_NORTH -> ascendingRailShape(transform.transform(BlockFace.NORTH));
+            case ASCENDING_SOUTH -> ascendingRailShape(transform.transform(BlockFace.SOUTH));
+            case SOUTH_EAST -> cornerRailShape(transform.transform(BlockFace.SOUTH), transform.transform(BlockFace.EAST));
+            case SOUTH_WEST -> cornerRailShape(transform.transform(BlockFace.SOUTH), transform.transform(BlockFace.WEST));
+            case NORTH_WEST -> cornerRailShape(transform.transform(BlockFace.NORTH), transform.transform(BlockFace.WEST));
+            case NORTH_EAST -> cornerRailShape(transform.transform(BlockFace.NORTH), transform.transform(BlockFace.EAST));
+        };
+    }
+
+    private Rail.Shape railAxisShape(BlockFace face) {
+        return face == BlockFace.EAST || face == BlockFace.WEST ? Rail.Shape.EAST_WEST : Rail.Shape.NORTH_SOUTH;
+    }
+
+    private Rail.Shape ascendingRailShape(BlockFace face) {
+        return switch (face) {
+            case EAST -> Rail.Shape.ASCENDING_EAST;
+            case WEST -> Rail.Shape.ASCENDING_WEST;
+            case SOUTH -> Rail.Shape.ASCENDING_SOUTH;
+            default -> Rail.Shape.ASCENDING_NORTH;
+        };
+    }
+
+    private Rail.Shape cornerRailShape(BlockFace first, BlockFace second) {
+        Set<BlockFace> faces = Set.of(first, second);
+        if (faces.contains(BlockFace.SOUTH) && faces.contains(BlockFace.EAST)) return Rail.Shape.SOUTH_EAST;
+        if (faces.contains(BlockFace.SOUTH) && faces.contains(BlockFace.WEST)) return Rail.Shape.SOUTH_WEST;
+        if (faces.contains(BlockFace.NORTH) && faces.contains(BlockFace.WEST)) return Rail.Shape.NORTH_WEST;
+        return Rail.Shape.NORTH_EAST;
+    }
+
+    private Stairs.Shape mirrorStairShape(Stairs.Shape shape) {
+        return switch (shape) {
+            case INNER_LEFT -> Stairs.Shape.INNER_RIGHT;
+            case INNER_RIGHT -> Stairs.Shape.INNER_LEFT;
+            case OUTER_LEFT -> Stairs.Shape.OUTER_RIGHT;
+            case OUTER_RIGHT -> Stairs.Shape.OUTER_LEFT;
+            case STRAIGHT -> Stairs.Shape.STRAIGHT;
+        };
+    }
+
+    private Chest.Type mirrorChestType(Chest.Type type) {
+        return switch (type) {
+            case LEFT -> Chest.Type.RIGHT;
+            case RIGHT -> Chest.Type.LEFT;
+            case SINGLE -> Chest.Type.SINGLE;
+        };
     }
 
     private void updateLibrarySign(Sign sign, Vector3i pos) {

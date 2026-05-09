@@ -66,8 +66,10 @@ public class GUIManager {
         }
         if (book.getType() != Material.WRITTEN_BOOK || !(book.getItemMeta() instanceof BookMeta meta)) {
             inv.setItem(4, item(Material.BARRIER, "&cWritten Books Only", List.of("&7Remove this item and place", "&7a signed written book here.")));
+            inv.setItem(22, book);
             return;
         }
+        inv.setItem(22, book);
         PersistentDataContainer pdc = meta.getPersistentDataContainer();
         inv.setItem(4, item(Material.WRITTEN_BOOK, "&d" + value(meta.getTitle(), "Untitled"), List.of("&7Author: &f" + value(meta.getAuthor(), "Unknown"), "&7Pages: &f" + meta.getPageCount())));
         inv.setItem(9, item(Material.NAME_TAG, "&bEdit Title", List.of("&7Current: &f" + value(meta.getTitle(), "Untitled"))));

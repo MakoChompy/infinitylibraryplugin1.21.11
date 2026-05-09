@@ -45,6 +45,7 @@ public class BookStorageManager {
     private final Map<UUID, StoredBook> books = new ConcurrentHashMap<>();
     private final Set<UUID> awaitingSearch = ConcurrentHashMap.newKeySet();
     private final Map<UUID, PendingBookMetadata> pendingMetadata = new ConcurrentHashMap<>();
+    private final Map<UUID, PendingLecternBookEdit> pendingLecternEdits = new ConcurrentHashMap<>();
     private final Map<String, String> shelfCategories = new ConcurrentHashMap<>();
     private YamlConfiguration daily;
 
@@ -103,14 +104,120 @@ public class BookStorageManager {
 
     public void recordBook(Player contributor, ItemStack stack, Location shelfLocation) {
         if (stack == null || stack.getType() != Material.WRITTEN_BOOK || !(stack.getItemMeta() instanceof BookMeta meta)) return;
-        UUID id = UUID.randomUUID();
         BookOwnership ownership = ownership(meta, contributor);
         PersistentDataContainer pdc = meta.getPersistentDataContainer();
         String fp = fingerprint(meta);
         Optional<StoredBook> existing = books.values().stream().filter(b -> fp.equals(fingerprint((BookMeta) Objects.requireNonNull(b.toItemStack().getItemMeta())))).findFirst();
-        if (existing.isPresent()) { books.put(existing.get().id(), existing.get().withLocation(serializeLocation(shelfLocation))); saveAsync(); return; }
-        books.put(id, new StoredBook(id, contributor.getUniqueId(), contributor.getName(), ownership.ownerUuid(), ownership.ownerName(), ownership.isPublic(), safe(meta.getTitle()), safe(meta.getAuthor()), List.copyOf(meta.getPages()), stack.serialize(), Instant.now().toString(), serializeLocation(shelfLocation), safe(pdc.get(categoryKey, PersistentDataType.STRING)), safe(pdc.get(tagsKey, PersistentDataType.STRING)), safe(pdc.get(ratingKey, PersistentDataType.STRING)), safe(pdc.get(commentsKey, PersistentDataType.STRING))));
+        UUID id = existing.map(StoredBook::id).orElseGet(UUID::randomUUID);
+        String insertedAt = existing.map(StoredBook::insertedAt).orElseGet(() -> Instant.now().toString());
+        books.put(id, new StoredBook(id, contributor.getUniqueId(), contributor.getName(), ownership.ownerUuid(), ownership.ownerName(), ownership.isPublic(), safe(meta.getTitle()), safe(meta.getAuthor()), List.copyOf(meta.getPages()), stack.serialize(), insertedAt, serializeLocation(shelfLocation), safe(pdc.get(categoryKey, PersistentDataType.STRING)), safe(pdc.get(tagsKey, PersistentDataType.STRING)), safe(pdc.get(ratingKey, PersistentDataType.STRING)), safe(pdc.get(commentsKey, PersistentDataType.STRING))));
         saveAsync();
+    }
+
+
+    public boolean isPublicBook(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return false;
+        Byte publicFlag = item.getItemMeta().getPersistentDataContainer().get(publicKey, PersistentDataType.BYTE);
+        return publicFlag != null && publicFlag == (byte) 1;
+    }
+
+    public String bookMetadataValue(PersistentDataContainer pdc, String key) {
+        NamespacedKey namespacedKey = switch (key) {
+            case "book_category" -> categoryKey;
+            case "book_tags" -> tagsKey;
+            case "book_rating" -> ratingKey;
+            case "book_comments" -> commentsKey;
+            default -> null;
+        };
+        return namespacedKey == null ? "" : pdc.get(namespacedKey, PersistentDataType.STRING);
+    }
+
+    public boolean hasPendingLecternEdit(Player player) { return pendingLecternEdits.containsKey(player.getUniqueId()); }
+
+    public void beginLecternBookEdit(Player player, ItemStack book, String field) {
+        if (book == null || book.getType() != Material.WRITTEN_BOOK) throw new IllegalArgumentException("Place a written book in the bottom middle slot first.");
+        pendingLecternEdits.put(player.getUniqueId(), new PendingLecternBookEdit(book.clone(), field));
+        player.closeInventory();
+        player.sendMessage(ChatColor.LIGHT_PURPLE + "Type the new " + field + " in chat, or type cancel.");
+    }
+
+    public void toggleLecternBookVisibility(Player player, ItemStack book) {
+        if (book == null || book.getType() != Material.WRITTEN_BOOK || !book.hasItemMeta()) throw new IllegalArgumentException("Place a written book in the bottom middle slot first.");
+        ItemMeta meta = book.getItemMeta();
+        ensureOwner(meta, player);
+        boolean isPublic = !isPublicBook(book);
+        meta.getPersistentDataContainer().set(publicKey, PersistentDataType.BYTE, (byte) (isPublic ? 1 : 0));
+        book.setItemMeta(meta);
+    }
+
+    public boolean saveLecternBook(Player player, ItemStack book) {
+        if (book == null || book.getType() != Material.WRITTEN_BOOK || !book.hasItemMeta()) throw new IllegalArgumentException("Place a written book in the bottom middle slot first.");
+        ItemStack saved = book.clone();
+        saved.setAmount(1);
+        ItemMeta meta = saved.getItemMeta();
+        ensureOwner(meta, player);
+        saved.setItemMeta(meta);
+        Location shelfLocation = placeInNearbyBookshelf(player, saved);
+        recordBook(player, saved, shelfLocation);
+        return shelfLocation != null;
+    }
+
+
+    private Location placeInNearbyBookshelf(Player player, ItemStack book) {
+        int radius = Math.max(0, plugin.getConfig().getInt("lectern-gui.save-shelf-radius", 16));
+        Location center = player.getLocation();
+        World world = player.getWorld();
+        for (int y = -radius; y <= radius; y++) for (int x = -radius; x <= radius; x++) for (int z = -radius; z <= radius; z++) {
+            Block block = world.getBlockAt(center.getBlockX() + x, center.getBlockY() + y, center.getBlockZ() + z);
+            if (block.getType() != Material.CHISELED_BOOKSHELF) continue;
+            Inventory inventory = bookshelfInventory(block);
+            if (inventory == null) continue;
+            for (int slot = 0; slot < Math.min(inventory.getSize(), 6); slot++) {
+                ItemStack existing = inventory.getItem(slot);
+                if (existing != null && !existing.getType().isAir()) continue;
+                inventory.setItem(slot, book.clone());
+                return block.getLocation();
+            }
+        }
+        return null;
+    }
+
+    public boolean handleLecternBookEditChat(Player player, String input) {
+        PendingLecternBookEdit pending = pendingLecternEdits.remove(player.getUniqueId());
+        if (pending == null) return false;
+        if (input.equalsIgnoreCase("cancel")) {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                returnItem(player, pending.stack());
+                player.sendMessage(ChatColor.GRAY + "Book metadata edit cancelled.");
+            });
+            return true;
+        }
+        ItemStack edited = pending.stack().clone();
+        applyLecternField(player, edited, pending.field(), input);
+        Bukkit.getScheduler().runTask(plugin, () -> plugin.getGuiManager().openLecternBookEditor(player, edited));
+        return true;
+    }
+
+    public void returnItem(Player player, ItemStack item) {
+        if (item == null || item.getType().isAir()) return;
+        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(item);
+        for (ItemStack leftover : leftovers.values()) player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+    }
+
+    private void applyLecternField(Player player, ItemStack book, String field, String value) {
+        if (!(book.getItemMeta() instanceof BookMeta meta)) return;
+        ensureOwner(meta, player);
+        PersistentDataContainer pdc = meta.getPersistentDataContainer();
+        switch (field) {
+            case "title" -> meta.setTitle(value);
+            case "author" -> meta.setAuthor(value);
+            case "category" -> pdc.set(categoryKey, PersistentDataType.STRING, value);
+            case "tags" -> pdc.set(tagsKey, PersistentDataType.STRING, value);
+            case "rating" -> pdc.set(ratingKey, PersistentDataType.STRING, value);
+            case "comments" -> pdc.set(commentsKey, PersistentDataType.STRING, value);
+            default -> { return; }
+        }
+        book.setItemMeta(meta);
     }
 
     public void beginMetadataPrompt(Player player, ItemStack stack, Location shelfLocation) {
@@ -181,6 +288,7 @@ public class BookStorageManager {
     }
 
     public boolean handleMetadataChat(Player player, String input) {
+        if (handleLecternBookEditChat(player, input)) return true;
         PendingBookMetadata pending = pendingMetadata.remove(player.getUniqueId());
         if (pending == null) return false;
         if (input.equalsIgnoreCase("cancel")) { player.sendMessage(ChatColor.GRAY + "Book metadata input cancelled."); return true; }
@@ -203,6 +311,7 @@ public class BookStorageManager {
     public String shelfCategory(Location shelf) { return shelfCategories.getOrDefault(serializeLocation(shelf), ""); }
     private String fingerprint(BookMeta meta) { return safe(meta.getTitle()) + "|" + safe(meta.getAuthor()) + "|" + String.join("\n", meta.getPages()); }
     private record PendingBookMetadata(ItemStack stack, Location shelfLocation) {}
+    private record PendingLecternBookEdit(ItemStack stack, String field) {}
 
     public boolean canRead(Player player, ItemStack item) {
         if (item == null || item.getType() != Material.WRITTEN_BOOK || !item.hasItemMeta()) return true;

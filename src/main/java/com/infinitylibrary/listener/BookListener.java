@@ -24,6 +24,11 @@ public class BookListener implements Listener {
 
     @EventHandler(ignoreCancelled = true) public void onInteract(PlayerInteractEvent e) {
         if (e.getHand() != EquipmentSlot.HAND) return;
+        if (e.getAction() == Action.LEFT_CLICK_BLOCK && e.getClickedBlock() != null && e.getClickedBlock().getType() == Material.LECTERN) {
+            plugin.getGuiManager().openLecternBookEditor(e.getPlayer());
+            e.setCancelled(true);
+            return;
+        }
         if (plugin.getSelectionManager().handle(e.getPlayer(), e.getAction(), e.getClickedBlock())) { e.setCancelled(true); return; }
         if (e.getAction() == Action.RIGHT_CLICK_BLOCK && e.getClickedBlock() != null) {
             if (e.getClickedBlock().getType().name().endsWith("SLAB")) {

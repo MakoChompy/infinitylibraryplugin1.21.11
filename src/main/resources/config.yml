@@ -12,6 +12,9 @@ generation:
   retry-room-selection: 16
   start-room-id: "builtin_start"
   sign-min-rooms: 6
+  path-blocking:
+    enabled: true
+    material: "SMOOTH_STONE"
 gui:
   title: "&5Infinity Library"
   size: 27
@@ -24,3 +27,8 @@ gui:
   player-stats-material: "BOOK"
 lectern-gui:
   title: "&5Library Lectern"
+  book-editor-title: "&5Library Book Editor"
+  save-shelf-radius: 16
+
+bookshelf-return-gui:
+  title: "&5Return Library Book"

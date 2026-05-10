@@ -106,7 +106,6 @@ public class RoomManager {
             if (room.id().equals(startRoomId)) continue;
             if (preferBook && room.type() != RoomType.BOOK) continue;
             if (Math.random() * 100.0 > room.spawnChance()) continue;
-            if (Math.random() * 100.0 > room.spawnChance()) continue;
             for (ConnectionPoint cp : room.connections()) for (RoomTransform transform : RoomTransform.all()) {
                 ConnectionPoint transformed = cp.transform(transform, room.size());
                 if (target.compatibleWith(transformed)) candidates.add(new RoomSelection(room, cp, transform));

@@ -25,6 +25,9 @@ public class SelectionManager {
     private final NamespacedKey selectionWandKey;
     private final NamespacedKey connectionWandKey;
     private final NamespacedKey variationWandKey;
+    private final NamespacedKey bookshelfCategoryWandKey;
+    private final NamespacedKey readingTableWandKey;
+    private final NamespacedKey readingSeatWandKey;
     private final Map<UUID, Mode> modes = new HashMap<>();
     private final Map<UUID, String> connectionPrefixes = new HashMap<>();
     private final Map<UUID, List<ConnectionPoint>> stagedConnections = new HashMap<>();
@@ -36,12 +39,21 @@ public class SelectionManager {
     private final Map<UUID, Integer> variationCounters = new HashMap<>();
     private final Map<UUID, Map<String, Integer>> wildcardVariationCounters = new HashMap<>();
     private final Map<UUID, Map<String, Vector3i>> wildcardVariationSizes = new HashMap<>();
+    private final Map<UUID, String> bookshelfCategoryModes = new HashMap<>();
+    private final Map<UUID, Vector3i> pendingBookshelfCategoryStart = new HashMap<>();
+    private final Map<UUID, Vector3i> pendingReadingTableStart = new HashMap<>();
+    private final Map<UUID, Vector3i> pendingReadingSeatStart = new HashMap<>();
+    private final Set<String> readingTables = new HashSet<>();
+    private final Set<String> readingSeats = new HashSet<>();
 
     public SelectionManager(InfinityLibraryPlugin plugin) {
         this.plugin = plugin;
         this.selectionWandKey = new NamespacedKey(plugin, "selection_wand");
         this.connectionWandKey = new NamespacedKey(plugin, "connection_wand");
         this.variationWandKey = new NamespacedKey(plugin, "variation_wand");
+        this.bookshelfCategoryWandKey = new NamespacedKey(plugin, "bookshelf_category_wand");
+        this.readingTableWandKey = new NamespacedKey(plugin, "reading_table_wand");
+        this.readingSeatWandKey = new NamespacedKey(plugin, "reading_seat_wand");
     }
 
     public ItemStack createWand() {
@@ -59,6 +71,29 @@ public class SelectionManager {
         meta.setDisplayName(ChatColor.AQUA + "Infinity Library Connection Wand");
         meta.setLore(List.of(ChatColor.GRAY + "Click blocks inside a selected room", ChatColor.GRAY + "to stage connection points."));
         meta.getPersistentDataContainer().set(connectionWandKey, PersistentDataType.BYTE, (byte) 1);
+        wand.setItemMeta(meta);
+        return wand;
+    }
+
+
+    public ItemStack createBookshelfCategoryWand() {
+        ItemStack wand = new ItemStack(Material.BOOKSHELF);
+        ItemMeta meta = wand.getItemMeta();
+        meta.setDisplayName(ChatColor.GOLD + "Infinity Library Bookshelf Category Wand");
+        meta.setLore(List.of(ChatColor.GRAY + "Select two corners to categorize", ChatColor.GRAY + "all chiseled bookshelves in the area."));
+        meta.getPersistentDataContainer().set(bookshelfCategoryWandKey, PersistentDataType.BYTE, (byte) 1);
+        wand.setItemMeta(meta);
+        return wand;
+    }
+
+    public ItemStack createReadingTableWand() { return createRegionWand(Material.LECTERN, ChatColor.YELLOW + "Infinity Library Reading Table Wand", readingTableWandKey); }
+    public ItemStack createReadingSeatWand() { return createRegionWand(Material.OAK_SLAB, ChatColor.YELLOW + "Infinity Library Reading Seat Wand", readingSeatWandKey); }
+    private ItemStack createRegionWand(Material material, String name, NamespacedKey key) {
+        ItemStack wand = new ItemStack(material);
+        ItemMeta meta = wand.getItemMeta();
+        meta.setDisplayName(name);
+        meta.setLore(List.of(ChatColor.GRAY + "Select two corners of this", ChatColor.GRAY + "reading structure region."));
+        meta.getPersistentDataContainer().set(key, PersistentDataType.BYTE, (byte) 1);
         wand.setItemMeta(meta);
         return wand;
     }
@@ -84,6 +119,19 @@ public class SelectionManager {
         wand.setItemMeta(meta);
         return wand;
     }
+
+
+    private boolean isBookshelfCategoryWand(ItemStack item) { return item != null && item.hasItemMeta() && item.getItemMeta().getPersistentDataContainer().has(bookshelfCategoryWandKey, PersistentDataType.BYTE); }
+    private boolean isReadingTableWand(ItemStack item) { return item != null && item.hasItemMeta() && item.getItemMeta().getPersistentDataContainer().has(readingTableWandKey, PersistentDataType.BYTE); }
+    private boolean isReadingSeatWand(ItemStack item) { return item != null && item.hasItemMeta() && item.getItemMeta().getPersistentDataContainer().has(readingSeatWandKey, PersistentDataType.BYTE); }
+
+    public void setBookshelfCategoryMode(Player player, String category) {
+        bookshelfCategoryModes.put(player.getUniqueId(), category == null || category.isBlank() ? "general" : category);
+        player.sendMessage(ChatColor.GOLD + "Bookshelf category wand set to category: " + bookshelfCategoryModes.get(player.getUniqueId()));
+    }
+
+    public boolean isReadingTable(org.bukkit.Location location) { return readingTables.contains(locationKey(location)); }
+    public boolean isReadingSeat(org.bukkit.Location location) { return readingSeats.contains(locationKey(location)); }
 
     public Mode mode(Player player) {
         return modes.getOrDefault(player.getUniqueId(), Mode.POS1);
@@ -125,6 +173,9 @@ public class SelectionManager {
         ItemStack held = player.getInventory().getItemInMainHand();
         if (isConnectionWand(held)) return handleConnectionWand(player, action, clickedBlock);
         if (isVariationWand(held)) return handleVariationWand(player, action, clickedBlock);
+        if (isBookshelfCategoryWand(held)) return handleBookshelfCategoryWand(player, action, clickedBlock);
+        if (isReadingTableWand(held)) return handleReadingRegionWand(player, action, clickedBlock, true);
+        if (isReadingSeatWand(held)) return handleReadingRegionWand(player, action, clickedBlock, false);
         if (!isSelectionWand(held)) return false;
         if (action != Action.LEFT_CLICK_BLOCK && action != Action.RIGHT_CLICK_BLOCK) return false;
         Mode mode = mode(player);
@@ -135,6 +186,41 @@ public class SelectionManager {
             plugin.getRoomManager().setPos2(player, clickedBlock.getLocation());
             player.sendMessage(ChatColor.LIGHT_PURPLE + "Selection position 2 set to " + format(clickedBlock));
         }
+        return true;
+    }
+
+
+    private boolean handleBookshelfCategoryWand(Player player, Action action, Block clickedBlock) {
+        if (action != Action.LEFT_CLICK_BLOCK && action != Action.RIGHT_CLICK_BLOCK) return false;
+        UUID id = player.getUniqueId();
+        Vector3i current = absolute(clickedBlock);
+        Vector3i first = pendingBookshelfCategoryStart.get(id);
+        if (first == null) { pendingBookshelfCategoryStart.put(id, current); player.sendMessage(ChatColor.GOLD + "Bookshelf category point 1 set."); return true; }
+        pendingBookshelfCategoryStart.remove(id);
+        Vector3i min = min(first, current), max = max(first, current);
+        String category = bookshelfCategoryModes.getOrDefault(id, "general");
+        int changed = 0;
+        for (int x=min.x(); x<=max.x(); x++) for (int y=min.y(); y<=max.y(); y++) for (int z=min.z(); z<=max.z(); z++) {
+            Block block = clickedBlock.getWorld().getBlockAt(x, y, z);
+            if (block.getType() == Material.CHISELED_BOOKSHELF) { plugin.getBookStorageManager().setShelfCategory(block.getLocation(), category); changed++; }
+        }
+        player.sendMessage(ChatColor.GOLD + "Categorized " + changed + " chiseled bookshelf(s) as " + category + ".");
+        return true;
+    }
+
+    private boolean handleReadingRegionWand(Player player, Action action, Block clickedBlock, boolean table) {
+        if (action != Action.LEFT_CLICK_BLOCK && action != Action.RIGHT_CLICK_BLOCK) return false;
+        UUID id = player.getUniqueId();
+        Map<UUID, Vector3i> pending = table ? pendingReadingTableStart : pendingReadingSeatStart;
+        Vector3i current = absolute(clickedBlock);
+        Vector3i first = pending.get(id);
+        if (first == null) { pending.put(id, current); player.sendMessage(ChatColor.YELLOW + (table ? "Reading table" : "Reading seat") + " point 1 set."); return true; }
+        pending.remove(id);
+        Vector3i min = min(first, current), max = max(first, current);
+        Set<String> target = table ? readingTables : readingSeats;
+        int changed = 0;
+        for (int x=min.x(); x<=max.x(); x++) for (int y=min.y(); y<=max.y(); y++) for (int z=min.z(); z<=max.z(); z++) { target.add(locationKey(clickedBlock.getWorld().getName(), x, y, z)); changed++; }
+        player.sendMessage(ChatColor.YELLOW + "Marked " + changed + " block(s) as a " + (table ? "reading table" : "reading seat") + " area.");
         return true;
     }
 
@@ -217,6 +303,9 @@ public class SelectionManager {
 
     private Vector3i min(Vector3i a, Vector3i b) { return new Vector3i(Math.min(a.x(), b.x()), Math.min(a.y(), b.y()), Math.min(a.z(), b.z())); }
     private Vector3i max(Vector3i a, Vector3i b) { return new Vector3i(Math.max(a.x(), b.x()), Math.max(a.y(), b.y()), Math.max(a.z(), b.z())); }
+    private Vector3i absolute(Block block) { return new Vector3i(block.getX(), block.getY(), block.getZ()); }
+    private String locationKey(org.bukkit.Location location) { return locationKey(location.getWorld().getName(), location.getBlockX(), location.getBlockY(), location.getBlockZ()); }
+    private String locationKey(String world, int x, int y, int z) { return world + ";" + x + ";" + y + ";" + z; }
 
     private record RoomBounds(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
         static RoomBounds from(com.infinitylibrary.room.RoomManager.SelectionBounds bounds) {

@@ -46,6 +46,7 @@ public class BookStorageManager {
     private final Set<UUID> awaitingSearch = ConcurrentHashMap.newKeySet();
     private final Map<UUID, PendingBookMetadata> pendingMetadata = new ConcurrentHashMap<>();
     private final Map<UUID, PendingLecternBookEdit> pendingLecternEdits = new ConcurrentHashMap<>();
+    private final Map<UUID, PendingReturnBookEdit> pendingReturnEdits = new ConcurrentHashMap<>();
     private final Map<String, String> shelfCategories = new ConcurrentHashMap<>();
     private YamlConfiguration daily;
 
@@ -64,6 +65,7 @@ public class BookStorageManager {
 
     public void load() {
         books.clear();
+        shelfCategories.clear();
         daily = YamlConfiguration.loadConfiguration(dailyFile);
         if (!file.exists()) return;
         YamlConfiguration y = YamlConfiguration.loadConfiguration(file);
@@ -157,6 +159,7 @@ public class BookStorageManager {
         ItemMeta meta = saved.getItemMeta();
         ensureOwner(meta, player);
         saved.setItemMeta(meta);
+        applyAverageRatingLore(saved);
         Location shelfLocation = placeInNearbyBookshelf(player, saved);
         recordBook(player, saved, shelfLocation);
         return shelfLocation != null;
@@ -180,6 +183,77 @@ public class BookStorageManager {
             }
         }
         return null;
+    }
+
+
+    public boolean hasPendingReturnEdit(Player player) { return pendingReturnEdits.containsKey(player.getUniqueId()); }
+
+    public void beginReturnBookEdit(Player player, ItemStack book, String field) {
+        if (book == null || book.getType() != Material.WRITTEN_BOOK) throw new IllegalArgumentException("Place a written book in the middle slot first.");
+        pendingReturnEdits.put(player.getUniqueId(), new PendingReturnBookEdit(book.clone(), field));
+        player.closeInventory();
+        player.sendMessage(ChatColor.LIGHT_PURPLE + "Type the new " + field + " in chat, or type cancel.");
+    }
+
+    public boolean handleReturnBookEditChat(Player player, String input) {
+        PendingReturnBookEdit pending = pendingReturnEdits.remove(player.getUniqueId());
+        if (pending == null) return false;
+        if (input.equalsIgnoreCase("cancel")) {
+            Bukkit.getScheduler().runTask(plugin, () -> { returnItem(player, pending.stack()); player.sendMessage(ChatColor.GRAY + "Book return edit cancelled."); });
+            return true;
+        }
+        ItemStack edited = pending.stack().clone();
+        applyReturnField(player, edited, pending.field(), input);
+        Bukkit.getScheduler().runTask(plugin, () -> plugin.getGuiManager().openBookshelfReturn(player, edited));
+        return true;
+    }
+
+    public boolean returnBookToLibrary(Player player, ItemStack book) {
+        return saveLecternBook(player, book);
+    }
+
+    public String averageRatingText(ItemStack book) {
+        if (book == null || !book.hasItemMeta()) return "unrated";
+        String ratings = book.getItemMeta().getPersistentDataContainer().get(ratingKey, PersistentDataType.STRING);
+        List<Double> values = parseRatings(ratings);
+        if (values.isEmpty()) return "unrated";
+        double average = values.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        return String.format(Locale.ROOT, "%.1f/5", average);
+    }
+
+    public String bookSummary(ItemStack book) {
+        if (book == null || book.getType() != Material.WRITTEN_BOOK || !(book.getItemMeta() instanceof BookMeta meta)) return "";
+        return ChatColor.LIGHT_PURPLE + safe(meta.getTitle()) + ChatColor.GRAY + " by " + ChatColor.WHITE + safe(meta.getAuthor()) + ChatColor.GOLD + " ★ " + averageRatingText(book);
+    }
+
+    private void applyReturnField(Player player, ItemStack book, String field, String value) {
+        if (!(book.getItemMeta() instanceof BookMeta meta)) return;
+        ensureOwner(meta, player);
+        PersistentDataContainer pdc = meta.getPersistentDataContainer();
+        if (field.equals("rating")) {
+            double rating;
+            try { rating = Double.parseDouble(value.trim()); } catch (NumberFormatException ex) { rating = 0.0; }
+            rating = Math.max(1.0, Math.min(5.0, rating));
+            String existing = safe(pdc.get(ratingKey, PersistentDataType.STRING));
+            pdc.set(ratingKey, PersistentDataType.STRING, existing.isBlank() ? String.valueOf(rating) : existing + "," + rating);
+        } else if (field.equals("comment")) {
+            String existing = safe(pdc.get(commentsKey, PersistentDataType.STRING));
+            String entry = player.getName() + ": " + value;
+            pdc.set(commentsKey, PersistentDataType.STRING, existing.isBlank() ? entry : existing + "\n" + entry);
+        }
+        book.setItemMeta(meta);
+    }
+
+    private List<Double> parseRatings(String ratings) {
+        if (ratings == null || ratings.isBlank()) return List.of();
+        List<Double> values = new ArrayList<>();
+        for (String part : ratings.split(",")) {
+            try {
+                double value = Double.parseDouble(part.trim());
+                if (value >= 1.0 && value <= 5.0) values.add(value);
+            } catch (NumberFormatException ignored) { }
+        }
+        return values;
     }
 
     public boolean handleLecternBookEditChat(Player player, String input) {
@@ -218,6 +292,7 @@ public class BookStorageManager {
             default -> { return; }
         }
         book.setItemMeta(meta);
+        applyAverageRatingLore(book);
     }
 
     public void beginMetadataPrompt(Player player, ItemStack stack, Location shelfLocation) {
@@ -265,6 +340,28 @@ public class BookStorageManager {
         saveAsync();
     }
 
+
+    public Optional<ItemStack> peekBookshelfBook(Block block) {
+        if (block.getType() != Material.CHISELED_BOOKSHELF) return Optional.empty();
+        Inventory inventory = bookshelfInventory(block);
+        if (inventory == null) return Optional.empty();
+        for (int slot = 0; slot < Math.min(inventory.getSize(), 6); slot++) {
+            ItemStack item = inventory.getItem(slot);
+            if (item != null && item.getType() == Material.WRITTEN_BOOK) return Optional.of(item);
+        }
+        return Optional.empty();
+    }
+
+    private void applyAverageRatingLore(ItemStack book) {
+        if (book == null || !book.hasItemMeta()) return;
+        ItemMeta meta = book.getItemMeta();
+        List<String> lore = meta.hasLore() && meta.getLore() != null ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
+        lore.removeIf(line -> ChatColor.stripColor(line).startsWith("Average rating:"));
+        lore.add(ChatColor.GOLD + "Average rating: " + averageRatingText(book));
+        meta.setLore(lore);
+        book.setItemMeta(meta);
+    }
+
     public void beginSearchPrompt(Player player) {
         awaitingSearch.add(player.getUniqueId());
         player.sendMessage(ChatColor.LIGHT_PURPLE + "Type a book title search in chat. Type cancel to stop.");
@@ -288,6 +385,7 @@ public class BookStorageManager {
     }
 
     public boolean handleMetadataChat(Player player, String input) {
+        if (handleReturnBookEditChat(player, input)) return true;
         if (handleLecternBookEditChat(player, input)) return true;
         PendingBookMetadata pending = pendingMetadata.remove(player.getUniqueId());
         if (pending == null) return false;
@@ -312,6 +410,7 @@ public class BookStorageManager {
     private String fingerprint(BookMeta meta) { return safe(meta.getTitle()) + "|" + safe(meta.getAuthor()) + "|" + String.join("\n", meta.getPages()); }
     private record PendingBookMetadata(ItemStack stack, Location shelfLocation) {}
     private record PendingLecternBookEdit(ItemStack stack, String field) {}
+    private record PendingReturnBookEdit(ItemStack stack, String field) {}
 
     public boolean canRead(Player player, ItemStack item) {
         if (item == null || item.getType() != Material.WRITTEN_BOOK || !item.hasItemMeta()) return true;

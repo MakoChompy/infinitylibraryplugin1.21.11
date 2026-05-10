@@ -84,6 +84,37 @@ public class GUIManager {
 
     private String metadata(PersistentDataContainer pdc, String key, String fallback) { return value(plugin.getBookStorageManager().bookMetadataValue(pdc, key), fallback); }
     private String value(String value, String fallback) { return value == null || value.isBlank() ? fallback : value; }
+
+    public String bookshelfReturnTitle() { return color(plugin.getConfig().getString("bookshelf-return-gui.title", "&5Return Library Book")); }
+    public void openBookshelfReturn(Player player, ItemStack book) {
+        Inventory inv = Bukkit.createInventory(null, 27, bookshelfReturnTitle());
+        drawBookshelfReturn(inv, player, book);
+        player.openInventory(inv);
+    }
+    public void refreshBookshelfReturn(Player player) {
+        Inventory inv = player.getOpenInventory().getTopInventory();
+        if (!player.getOpenInventory().getTitle().equals(bookshelfReturnTitle())) return;
+        drawBookshelfReturn(inv, player, inv.getItem(13));
+    }
+    private void drawBookshelfReturn(Inventory inv, Player player, ItemStack book) {
+        for (int i = 0; i < 27; i++) if (i != 13) inv.setItem(i, item(Material.BLACK_STAINED_GLASS_PANE, " ", List.of()));
+        if (book == null || book.getType().isAir()) {
+            inv.setItem(4, item(Material.CHISELED_BOOKSHELF, "&dReturn A Library Book", List.of("&7Drag a written book into", "&7the middle slot below.")));
+            inv.setItem(13, null);
+            return;
+        }
+        if (book.getType() != Material.WRITTEN_BOOK || !(book.getItemMeta() instanceof BookMeta meta)) {
+            inv.setItem(4, item(Material.BARRIER, "&cWritten Books Only", List.of("&7Remove this item and place", "&7a signed written book here.")));
+            inv.setItem(13, book);
+            return;
+        }
+        inv.setItem(13, book);
+        inv.setItem(4, item(Material.WRITTEN_BOOK, "&d" + value(meta.getTitle(), "Untitled"), List.of("&7Author: &f" + value(meta.getAuthor(), "Unknown"), "&7Average rating: &e" + plugin.getBookStorageManager().averageRatingText(book))));
+        inv.setItem(11, item(Material.EXPERIENCE_BOTTLE, "&eAdd Rating", List.of("&7Type a 1-5 rating in chat.", "&7Average: &e" + plugin.getBookStorageManager().averageRatingText(book))));
+        inv.setItem(15, item(Material.OAK_SIGN, "&aAdd Comment", List.of("&7Add a comment for this book.")));
+        inv.setItem(17, item(Material.EMERALD_BLOCK, "&aReturn To Library", List.of("&7Stores this book back", "&7into the library.")));
+    }
+
     public String roomEditorTitle() { return color("&5Room Editor"); }
     public void openRoomEditor(Player player) {
         Inventory inv = Bukkit.createInventory(null, 54, roomEditorTitle());

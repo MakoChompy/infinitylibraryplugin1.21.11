@@ -47,6 +47,10 @@ public class GUIListener implements Listener {
             handleLecternBookEditorClick(e);
             return;
         }
+        if (title.equals(plugin.getGuiManager().bookshelfReturnTitle())) {
+            handleBookshelfReturnClick(e);
+            return;
+        }
         if (!title.equals(plugin.getGuiManager().lecternTitle())) return;
         e.setCancelled(true);
         if (!(e.getWhoClicked() instanceof Player player)) return;
@@ -108,22 +112,75 @@ public class GUIListener implements Listener {
         } catch (IllegalArgumentException ex) { player.sendMessage(ChatColor.RED + ex.getMessage()); }
     }
 
+
+    private void handleBookshelfReturnClick(InventoryClickEvent e) {
+        if (!(e.getWhoClicked() instanceof Player player)) { e.setCancelled(true); return; }
+        int rawSlot = e.getRawSlot();
+        if (rawSlot == 13) {
+            if (e.getClick() == ClickType.SHIFT_LEFT || e.getClick() == ClickType.SHIFT_RIGHT) { e.setCancelled(true); return; }
+            ItemStack cursor = e.getCursor();
+            ItemStack hotbar = e.getHotbarButton() >= 0 ? player.getInventory().getItem(e.getHotbarButton()) : null;
+            if ((cursor != null && !cursor.getType().isAir() && cursor.getType() != Material.WRITTEN_BOOK) || (hotbar != null && !hotbar.getType().isAir() && hotbar.getType() != Material.WRITTEN_BOOK)) {
+                e.setCancelled(true);
+                player.sendMessage(ChatColor.RED + "Only signed written books can be returned here.");
+                return;
+            }
+            plugin.getServer().getScheduler().runTask(plugin, () -> plugin.getGuiManager().refreshBookshelfReturn(player));
+            return;
+        }
+        if (rawSlot >= e.getView().getTopInventory().getSize()) {
+            if (e.getClick() == ClickType.SHIFT_LEFT || e.getClick() == ClickType.SHIFT_RIGHT) e.setCancelled(true);
+            return;
+        }
+        e.setCancelled(true);
+        if (rawSlot < 0) return;
+        ItemStack book = e.getView().getTopInventory().getItem(13);
+        try {
+            switch (rawSlot) {
+                case 11 -> plugin.getBookStorageManager().beginReturnBookEdit(player, book, "rating");
+                case 15 -> plugin.getBookStorageManager().beginReturnBookEdit(player, book, "comment");
+                case 17 -> {
+                    boolean placed = plugin.getBookStorageManager().returnBookToLibrary(player, book);
+                    e.getView().getTopInventory().setItem(13, null);
+                    player.closeInventory();
+                    player.sendMessage(placed ? ChatColor.GREEN + "Book returned to a nearby chiseled bookshelf." : ChatColor.GREEN + "Book returned to the library pool.");
+                }
+            }
+        } catch (IllegalArgumentException ex) { player.sendMessage(ChatColor.RED + ex.getMessage()); }
+    }
+
     @EventHandler public void onDrag(InventoryDragEvent e) {
-        if (!e.getView().getTitle().equals(plugin.getGuiManager().lecternBookEditorTitle())) return;
-        boolean touchesProtectedSlot = e.getRawSlots().stream().anyMatch(slot -> slot < e.getView().getTopInventory().getSize() && slot != 22);
-        ItemStack submitted = e.getNewItems().get(22);
+        if (e.getView().getTitle().equals(plugin.getGuiManager().lecternBookEditorTitle())) {
+            handleEditorDrag(e, 22, true);
+            return;
+        }
+        if (e.getView().getTitle().equals(plugin.getGuiManager().bookshelfReturnTitle())) handleEditorDrag(e, 13, false);
+    }
+
+
+    private void handleEditorDrag(InventoryDragEvent e, int bookSlot, boolean lecternEditor) {
+        boolean touchesProtectedSlot = e.getRawSlots().stream().anyMatch(slot -> slot < e.getView().getTopInventory().getSize() && slot != bookSlot);
+        ItemStack submitted = e.getNewItems().get(bookSlot);
         boolean putsInvalidBookInSubmitSlot = submitted != null && submitted.getType() != Material.WRITTEN_BOOK;
         if (touchesProtectedSlot || putsInvalidBookInSubmitSlot) e.setCancelled(true);
         else plugin.getServer().getScheduler().runTask(plugin, () -> {
-            if (e.getWhoClicked() instanceof Player player) plugin.getGuiManager().refreshLecternBookEditor(player);
+            if (e.getWhoClicked() instanceof Player player) {
+                if (lecternEditor) plugin.getGuiManager().refreshLecternBookEditor(player);
+                else plugin.getGuiManager().refreshBookshelfReturn(player);
+            }
         });
     }
 
     @EventHandler public void onClose(InventoryCloseEvent e) {
-        if (!e.getView().getTitle().equals(plugin.getGuiManager().lecternBookEditorTitle())) return;
         if (!(e.getPlayer() instanceof Player player)) return;
-        if (plugin.getBookStorageManager().hasPendingLecternEdit(player)) return;
-        ItemStack book = e.getInventory().getItem(22);
-        plugin.getBookStorageManager().returnItem(player, book);
+        if (e.getView().getTitle().equals(plugin.getGuiManager().lecternBookEditorTitle())) {
+            if (plugin.getBookStorageManager().hasPendingLecternEdit(player)) return;
+            plugin.getBookStorageManager().returnItem(player, e.getInventory().getItem(22));
+            return;
+        }
+        if (e.getView().getTitle().equals(plugin.getGuiManager().bookshelfReturnTitle())) {
+            if (plugin.getBookStorageManager().hasPendingReturnEdit(player)) return;
+            plugin.getBookStorageManager().returnItem(player, e.getInventory().getItem(13));
+        }
     }
 }

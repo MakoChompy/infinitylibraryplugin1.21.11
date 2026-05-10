@@ -29,3 +29,6 @@ lectern-gui:
   title: "&5Library Lectern"
   book-editor-title: "&5Library Book Editor"
   save-shelf-radius: 16
+
+bookshelf-return-gui:
+  title: "&5Return Library Book"

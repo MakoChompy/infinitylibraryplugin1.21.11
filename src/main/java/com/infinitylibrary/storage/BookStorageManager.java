@@ -341,6 +341,30 @@ public class BookStorageManager {
     }
 
 
+
+    public String bookshelfSlotSummary(Block block) {
+        if (block.getType() != Material.CHISELED_BOOKSHELF) return "";
+        Inventory inventory = bookshelfInventory(block);
+        if (inventory == null) return "";
+        List<String> slots = new ArrayList<>();
+        for (int slot = 0; slot < 6; slot++) {
+            ItemStack item = slot < inventory.getSize() ? inventory.getItem(slot) : null;
+            slots.add(ChatColor.DARK_PURPLE + String.valueOf(slot + 1) + ChatColor.GRAY + ": " + shortBookSummary(item));
+        }
+        return String.join(ChatColor.DARK_GRAY + " | ", slots);
+    }
+
+    private String shortBookSummary(ItemStack book) {
+        if (book == null || book.getType().isAir()) return ChatColor.DARK_GRAY + "Empty";
+        if (book.getType() != Material.WRITTEN_BOOK || !(book.getItemMeta() instanceof BookMeta meta)) return ChatColor.RED + "Not a book";
+        return ChatColor.LIGHT_PURPLE + truncate(safe(meta.getTitle()), 14) + ChatColor.GRAY + "/" + ChatColor.WHITE + truncate(safe(meta.getAuthor()), 10) + ChatColor.GOLD + " ★" + averageRatingText(book);
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.isBlank()) return "?";
+        return value.length() <= maxLength ? value : value.substring(0, Math.max(1, maxLength - 1)) + "…";
+    }
+
     public Optional<ItemStack> peekBookshelfBook(Block block) {
         if (block.getType() != Material.CHISELED_BOOKSHELF) return Optional.empty();
         Inventory inventory = bookshelfInventory(block);

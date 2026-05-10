@@ -136,7 +136,8 @@ public class BookListener implements Listener {
         for (Player player : Bukkit.getOnlinePlayers()) {
             Block target = player.getTargetBlockExact(6);
             if (target == null || target.getType() != Material.CHISELED_BOOKSHELF) continue;
-            plugin.getBookStorageManager().peekBookshelfBook(target).ifPresent(book -> player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(plugin.getBookStorageManager().bookSummary(book))));
+            String summary = plugin.getBookStorageManager().bookshelfSlotSummary(target);
+            if (!summary.isBlank()) player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(summary));
         }
     }
 
